@@ -1,201 +1,128 @@
-
 #!/bin/bash
 
-# Function to list all packages
-list_packages() {
-  echo "Packages available for installation:"
-  for package in "${packages[@]}"; do
-    echo "- $package"
-  done
-}
-
-# Function to list all plugin repos
-list_repos() {
-  echo "Plugin repos available for installation:"
-  for repo in "${repos[@]}"; do
-    echo "- $repo"
-  done
-}
-
-# Function to update package list
-update_package_list() {
-  echo "Do you want to update the package list? (sudo apt UPDATE) (y/n)"
-  read update_choice
-  if [[ $update_choice == "y" || $update_choice == "Y" ]]; then
-    sudo apt update
-  fi
-}
-
-# Function to install the MQTT package
-install_mqtt() {
-  sudo wget http://repo.mosquitto.org/debian/mosquitto-repo.gpg.key
-  sudo apt-key add mosquitto-repo.gpg.key
-  cd /etc/apt/sources.list.d
-  sudo wget http://repo.mosquitto.org/debian/mosquitto-jessie.list
-  sudo wget http://repo.mosquitto.org/debian/mosquitto-stretch.list
-  sudo wget http://repo.mosquitto.org/debian/mosquitto-buster.list
-  sudo apt update
-  sudo apt-get install -y mosquitto
-}
-
-# Function to install packages
-install_packages() {
-  while true; do
-    echo "Enter the names of the packages you want to install (separated by spaces, or type 'all' to install all packages):"
-    read -a selected_packages
-    if [[ "${selected_packages[@]}" == "all" ]]; then
-      for package in "${packages[@]}"; do
-        if [[ "$package" == "MQTT" ]]; then
-          install_mqtt
-        else
-          sudo apt install -y $package
-        fi
-      done
-      break
-    else
-for package in "${selected_packages[@]}"; do
-        if [[ "$package" == "MQTT" ]]; then
-          install_mqtt
-        else
-          sudo apt install -y $package
-        fi
-      done
-      echo "Do you want to install another package? (y/n)"
-      read another_choice
-      if [[ $another_choice != "y" && $another_choice != "Y" ]]; then
-        break
-      fi
+# Function to prompt for update
+function prompt_update() {
+    read -p "Do you want to update (not upgrade) before beginning? (y/n): " update_choice
+    if [ "$update_choice" == "y" ]; then
+        sudo apt update
     fi
-  done
 }
 
-# Function to download and extract plugin repos
-install_plugins() {
-  while true; do
-    echo "Enter the numbers of the plugin repos you want to install (separated by spaces, or type 'all' to install all repos):"
-    read -a selected_repos
-    if [[ "${selected_repos[@]}" == "all" ]]; then
-      echo "Choose the installation path (0: custom, 1: installed, 2: available):"
-      read path_choice
-      for repo in "${repos[@]}"; do
-        wget $repo -P /tmp
-        unzip /tmp/$(basename $repo) -d ${paths[$path_choice]}
-      done
-      break
-    else
-      echo "Choose the installation path (0: custom, 1: installed, 2: available):"
-      read path_choice
-      for repo_index in "${selected_repos[@]}"; do
-        wget ${repos[$repo_index]} -P /tmp
-        unzip /tmp/$(basename ${repos[$repo_index]}) -d ${paths[$path_choice]}
-done
-      echo "Do you want to install another plugin repo? (y/n)"
-      read another_choice
-      if [[ $another_choice != "y" && $another_choice != "Y" ]]; then
-        break
-      fi
-    fi
-  done
+# Function to list and install plugin repositories
+function install_repos() {
+    repos=(
+        "https://github.com/evilsocket/pwnagotchi-plugin-contrib/archive/master.zip"
+        "https://github.com/PwnPeter/pwnagotchi-plugins/archive/master.zip"
+        "https://github.com/Teraskull/pwnagotchi-community-plugins/archive/master.zip"
+        "https://github.com/itsdarklikehell/pwnagotchi-plugins/archive/refs/heads/master.zip"
+    )
+
+    echo "Available repositories:"
+    for i in "${!repos[@]}"; do
+        echo "$((i+1)). ${repos[i]}"
+    done
+
+    while true; do
+        read -p "Enter the number of the repository to install or 'a' for all repos (q to quit): " repo_choice
+        if [ "$repo_choice" == "q" ]; then
+            break
+        elif [ "$repo_choice" == "a" ]; then
+            install_all_repos
+            break
+        elif [[ "$repo_choice" =~ ^[0-9]+$ ]] && [ "$repo_choice" -ge 1 ] && [ "$repo_choice" -le "${#repos[@]}" ]; then
+            install_repo "${repos[$((repo_choice-1))]}"
+        else
+            echo "Invalid choice, please try again."
+        fi
+    done
 }
 
-# Function for system control options
-system_control() {
-  echo "Choose a system control option:"
-  echo "1: Restart pwnagotchi"
-  echo "2: Reboot"
-  echo "3: Shutdown"
-  echo "4: Restart in auto"
-  echo "5: Restart in manual"
-  read choice
-  case $choice in
-    1)
-      sudo systemctl restart pwnagotchi
-      ;;                                                                                                                                  2)
-      sudo reboot
-      ;;
-    3)
-      sudo shutdown now
-      ;;
-    4)
-      sudo touch /root/.pwnagotchi-auto && systemctl restart pwnagotchi
-      ;;
-    5)
-      sudo touch /root/.pwnagotchi-manu && systemctl restart pwnagotchi
-      ;;
-    *)
-    echo "Invalid choice"
-      ;;                                                        esac                                                        }
+# Function to install all repositories
+function install_all_repos() {
+    for repo in "${repos[@]}"; do
+        install_repo "$repo"
+    done
+}
 
-# Define the packages to install
-packages=(
-  "msmtp"
-  "msmtp-mta"
-  "mailutils"
-  "mpack"                                                       "hcxtools"
-  "johntheripper"
-  "wireshark"
-  "surfshark"
-  "openvpn"
-  "wireguard"                                                   "python"
-  "inotify-tools"                                               "vagrant"
-  "virtualbox"
-  "wordninja"
-  "tabulate"
-  "MQTT"
-)
+# Function to install a single repository
+function install_repo() {
+    repo_url="$1"
+    echo "Choose where you want to install your plugins:"
+    echo "1. /usr/local/share/pwnagotchi/custom-plugins"
+    echo "2. /usr/local/share/pwnagotchi/installed-plugins"
+    echo "3. /usr/local/share/pwnagotchi/available-plugins"
+    read -p "Enter the number of the location: " location_choice
+    case $location_choice in
+        1) location="/usr/local/share/pwnagotchi/custom-plugins" ;;
+        2) location="/usr/local/share/pwnagotchi/installed-plugins" ;;
+        3) location="/usr/local/share/pwnagotchi/available-plugins" ;;
+        *) echo "Invalid choice, defaulting to /usr/local/share/pwnagotchi/custom-plugins"
+           location="/usr/local/share/pwnagotchi/custom-plugins" ;;
+    esac
 
-# Define the plugin repos and paths
-repos=(
-  "https://github.com/evilsocket/pwnagotchi-plugins-contrib/archive/master.zip"
-  "https://github.com/PwnPeter/pwnagotchi-plugins/archive/master.zip"
-  "https://github.com/Teraskull/pwnagotchi-community-plugins/archive/master.zip"
-  "https://github.com/itsdarklikehell/pwnagotchi-plugins/archive/refs/heads/master.zip"
-)
-paths=(
-  "/usr/local/share/pwnagotchi/custom-plugins"
-  "/usr/local/share/pwnagotchi/installed-plugins"
-  "/usr/local/share/pwnagotchi/available-plugins"
-)
+    wget -qO- "$repo_url" | bsdtar -xf- -C "$location"
+    echo "Repository installed to $location"
+}
 
-# Update package list
-update_package_list
+# Function to install selected packages
+function install_packages() {
+    packages=(
+        msmtp msmtp-mta mailutils mpack hcxtools johntheripper wireguard surfshark wireshark openvpn wireguard-manager python
+        inotify-tools inotify vagrant virtualbox wordninja tabulate MQTT NFTY Nextcloud gammu-smsd gammu gnokii-cli ircp-tray
+        mmsd-tng obexftp obexpushd onioncat smsclient smstools aide-dynamic anacron apt-offline-gui apt-venv apticron atsar autopsy
+        backup2l backupninja bluetooth bluez bluez-test-tools boot-info-script artikulate aircrack-ng airgraph-ng autossh
+        autodns-dhcp bandwidthd bluemon brutespray bti bully capstats chaosreader chatty comitup cowpatty darkstat davmail dirb dnsmap
+        droopy dsniff eapoltest easyssh ethtool firewalk fling ftpwatch hunt hydra hydra-gtk ifmetric ifplugd ifrename ifstat iftop
+        inetutils-ftp macchanger mdk3 mdk4 mii-diag mininet modem-manager-gui mosquitto mosquitto-clients mozillavpn onionshare
+        onionshare-cli packit pads purple-discord secvpn sipgrep sipcrack sipsak sipwitch talk traceroute websploit wpasupplicant
+        bruteforce-wallet
+    )
 
-# List all packages and ask if the user wants to install any
-list_packages
-echo "Do you want to install any packages? (y/n)"
-read install_pkg_choice
-if [[ $install_pkg_choice == "y" || $install_pkg_choice == "Y" ]]; then
-  install_packages
-fi
+    echo "Available packages:"
+    sorted_packages=($(echo "${packages[@]}" | tr ' ' '\n' | sort))
+    for i in "${!sorted_packages[@]}"; do
+        echo "$((i+1)). ${sorted_packages[i]}"
+    done
 
-# List all plugin repos and ask if the user wants to install any
-list_repos
-echo "Do you want to install any plugin repos? (y/n)"
-read install_repo_choice
-if [[ $install_repo_choice == "y" || $install_repo_choice == "Y" ]]; then
-  install_plugins
-fi
+    while true; do
+        read -p "Enter the numbers of the packages to install (comma-separated) or 'a' for all packages (q to quit): " package_choice
+        if [ "$package_choice" == "q" ]; then
+            break
+        elif [ "$package_choice" == "a" ]; then
+            install_all_packages
+            break
+        else
+            IFS=',' read -ra choices <<< "$package_choice"
+            for choice in "${choices[@]}"; do
+                if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#sorted_packages[@]}" ]; then
+                    sudo apt install -y "${sorted_packages[$((choice-1))]}"
+                else
+                    echo "Invalid choice: $choice"
+                fi
+            done
+        fi
+    done
+}
 
-# System control options
-system_control
+# Function to install all packages
+function install_all_packages() {
+    sudo apt install -y "${sorted_packages[@]}"
+}
 
-echo "Thank you! Brought to you by BThomas22x of Cobra_Dev. BThomas22x@gmail.com -- email if you have anything to contribute!"
+# Main script logic
+prompt_update
+install_repos
+install_packages
 
+echo "Thank you for using Pwnstall. Brought to you by BThomas22x of Cobra_Dev."
+echo "If any packages or repositories were installed, the Pwnagotchi will need to be restarted."
+read -p "Choose an option: (1) Shutdown, (2) Reboot, (3) Restart Pwnagotchi, (4) Restart in Auto mode, (5) Restart in Manual mode: " restart_choice
 
-
-
-
-
-
-
-
-
-
-
-
-
-  
-
-
-
-        
+case $restart_choice in
+    1) sudo shutdown now ;;
+    2) sudo reboot ;;
+    3) sudo systemctl restart pwnagotchi ;;
+    4) sudo touch /root/.pwnagotchi-auto && sudo systemctl restart pwnagotchi ;;
+    5) sudo touch /root/.pwnagotchi-manu && sudo systemctl restart pwnagotchi ;;
+    *) echo "Invalid choice, exiting." ;;
+esac
